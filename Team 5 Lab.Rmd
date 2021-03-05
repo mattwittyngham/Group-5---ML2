@@ -1,0 +1,327 @@
+---
+title: "Team 5 Lab - Exercise 8.3.3, 8.3.4 & Applied Exercise 10"
+author: "Sarah Brown, Arife Kart-Arslan, Matt Trehub, Matt Wittyngham"
+output: 
+  html_document:
+    theme: journal
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+<br>
+To setup our exercises, we need some of the code from 8.3.2 code in order to have proper variables for our 8.33 example.
+
+```{r messages = FALSE, warnings = FALSE}
+library(MASS)
+library(randomForest)
+library(tree)
+set.seed(1)
+train = sample(1:nrow(Boston), nrow(Boston)/2)
+tree.boston=tree(medv~.,Boston,subset = train)
+summary(tree.boston)
+
+# Regression Tree
+tree(formula = medv~., data = Boston, subset = train)
+plot(tree.boston)
+text(tree.boston, pretty = 0)
+cv.boston=cv.tree(tree.boston)
+plot(cv.boston$size,cv.boston$dev,type = 'b')
+
+# prune tree
+prune.boston=prune.tree(tree.boston, best = 5)
+plot(prune.boston)
+text(prune.boston, pretty = 0)
+
+# use unpruned tree to make predictions on the test set
+yhat=predict(tree.boston, newdata = Boston[-train,])
+boston.test=Boston[-train,"medv"]
+plot(yhat,boston.test)
+abline(0,1)
+mean((yhat-boston.test)^2)
+
+```
+
+
+
+
+With this set up we can now get into...
+
+
+
+
+## Exercise 8.3.3 - Bagging and Random Forests
+
+In this example, we are applying the bagging and random forests methods to the Boston dataset. To do this, we utilize the randomForest package in R. Bagging is just a special type of random forest with m=p, which means that the randomForest() function can work for both.
+
+```{r}
+library(randomForest)
+set.seed(1)
+bag.boston=randomForest(medv~.,data = Boston, subset = train, mtry=13, importance=TRUE)
+
+```
+
+
+The argument "mtry=13" lets us know that all 13 predictors should be considered for each split within the tree
+
+
+```{r}
+bag.boston
+```
+
+
+- The percentage of variance explained is 85.17%. 
+- The number of trees: 500. 
+- The number of variables tried at each split: 13
+
+
+```{r}
+randomForest(formula = medv~., data = Boston, mtry = 13, importance = TRUE, subset = train)
+yhat.bag=predict(bag.boston, newdata = Boston[-train,])
+plot(yhat.bag, boston.test)
+abline(0,1)
+mean((yhat.bag-boston.test)^2)
+```
+
+
+The test set MSE associated with the bagged regression tree is 23.59273, which about 30% of that is obtained using an optimally pruned single tree. You can change the number of trees grown by randromForest() by using the ntree argument.
+
+
+```{r}
+bag.boston=randomForest(medv~., data = Boston, subset = train, mtry=13, ntree=25)
+yhat.bag=predict(bag.boston,newdata = Boston[-train,])
+mean((yhat.bag-boston.test)^2)
+```
+
+
+The process below is the same as above, except we are using a smaller value for the mtry argument.
+
+
+```{r}
+set.seed(1)
+rf.boston=randomForest(medv~., data = Boston, subset = train, mtry=6, importance=TRUE)
+yhat.rf=predict(rf.boston, newdata = Boston[-train,])
+mean((yhat.rf-boston.test)^2)
+```
+
+
+The test set MSE is 19.62021. This tells us our random forests yielded an improved outcome over bagging in this case. 
+We can use the importance() function to see the importance of each variable.
+
+```{r}
+importance(rf.boston)
+```
+
+This provides two measures of variable importance:
+- First is based on the mean decrease of accuracy in predictions on the out of bag samples when a given variable is excluded from the model
+- Second is a measure of the total decrease in node impurity that comes from splits over that variable, averaged over all trees
+
+When dealing with regression trees, the node impurity is measured by the training RSS. To plot these importance findings, you can use the varImpPlot() function.
+
+
+```{r}
+varImpPlot(rf.boston)
+```
+
+
+The results show that across all of the tress considered in the random forest, the wealth level of the community(lstat) amd the house size(rm) are far and away the two most important variables. 
+
+Bagging typically gives us improved accuracy over prediction using just a single tree. However, this accuracy can be achieved at the cost of ease of interpretation in some instances. This means often it is difficult to identify which variables are most important to the procedure. The importance() function can be used as a tool to identify which variables are most important.
+
+
+---------------------------------------------
+
+
+## Exercise 8.3.4 - Boosting
+
+We're going to be using the gbm package to fit boosted regression trees to the **Boston** data set. Since it's a regression problem, we'll call 'distribution = gaussian'; if it were a binary classification problem, it would be 'distribution='bernoulli'. 
+
+For this function, we'll sample 5000 trees at a depth limit of 4
+
+```{r}
+library(gbm)
+set.seed(1)
+boost.boston = gbm(medv~., data=Boston[train,], distribution = "gaussian",
+                   n.trees=5000, interaction.depth=4)
+```
+
+Call the summary function to show a relative influence plot and also outputs the relative influence statistics.
+
+```{r}
+summary(boost.boston)
+```
+
+With this call, it's shown the most important variables are lstat and rm. Now that this is known, we'll call the two variables' *partial dependence plots*. These plots will illustrate the marginal effect of the variables on the response after *integrating* out the other variables. As we might expect, median house prices are increasing with rm and decreasing with lstat.
+
+```{r}
+par(mfrow=c(1,2))
+plot(boost.boston, i="rm")
+plot(boost.boston, i="lstat")
+```
+
+With this boosted model, we can predict medv on the test set:
+
+```{r}
+yhat.boost = predict(boost.boston, newdata = Boston[-train,], n.trees = 5000)
+mean((yhat.boost-boston.test)^2)
+```
+
+We return an MSE of 18.84709, a number similar to random forests and superior to that of bagging. If we want, we can perform boosting with a different value for Lambda. The default is .001 but we can call it using "shrinkage ="
+
+```{r}
+boost.boston = gbm(medv~., data=Boston[train,], distribution = "gaussian",
+                   n.trees=5000, interaction.depth=4, shrinkage=0.2, verbose = F)
+yhat.boost = predict(boost.boston, newdata = Boston[-train,], n.trees = 5000)
+mean((yhat.boost-boston.test)^2)
+```
+
+By altering the shrinkage parameter, the MSE is slightly lower. 
+
+
+---------------------------------------------
+
+
+## Applied Exercise No. 10
+
+In this exercise, we'll use boosting to predict **Salary** in the Hitters data set.
+
+First thing we want to do is load the dataset and remove any observations where salary is missing.
+
+
+```{r Part A}
+library(MASS)
+library(tree)
+hitters <- ISLR::Hitters
+hitters<-hitters[-which(is.na(hitters$Salary)), ]
+hitters$Salary<-log(hitters$Salary)
+```
+ 
+
+We'll then create a training set consisting of the first 200 hitters, and a test set consisting of the remaining observations.
+
+
+```{r}
+train<-1:200
+hitters.train <- hitters[train,]
+hitters.test <- hitters[-train,]
+```
+
+
+From there, we'll perform boosting on the training set with 1,000 trees for a range of values of the shrinkage parameter lambda. Produce a plot with different shrinkage values on the x-axis and the corresponding training set MSE on the y-axis.
+
+
+```{r message = FALSE, warnings = FALSE}
+library(gbm)
+set.seed(1)
+boost.hitters<-gbm(Salary~.,data = hitters.train, distribution = "gaussian", 
+    n.trees = 1000)
+values = 10^seq(-9, 0, by = 0.04) #shrinkage values
+mse.train<-vector(mode="numeric")
+mse.test<-vector(mode="numeric")
+for (i in 1:length(values)) {
+ boost.hitters.train<-gbm(Salary~.,data = hitters.train, distribution = "gaussian", 
+                     n.trees = 1000, shrinkage = values[i])
+ pred.boost.train <- predict(boost.hitters.train, newdata = hitters.train, n.trees = 1000)
+ pred.boost.test <- predict(boost.hitters.train, newdata = hitters.test, n.trees = 1000)
+ mse.train[i]<-mean((pred.boost.train-hitters.train$Salary)^2)
+ mse.test[i] <- mean((pred.boost.test-hitters.test$Salary)^2)
+}
+plot(values,mse.train,ylab = "Train MSE", xlab = "Shrinkage Values", type = 'b', col = "forestgreen")
+best_mse<-min(mse.train) #use the one sd rule to pick the best shrinkage value and then use that model for the test
+best_mse #0.0005325252
+stdev= sd(mse.train[2:226])#this has the intercept in it so we don't want it to skew
+stdev #0.3343355
+abline(h=(best_mse + stdev), col = "red", lty = "dashed") #It's hard to see what is the best shrinkage value from this plot
+dataframe<-data.frame(values,mse.train) #make a dataframe and find the 
+dataframe 
+```
+
+
+Now we'll produce a plot on the test set.
+
+
+```{r}
+plot(values,mse.test,ylab = "Test MSE", xlab = "Shrinkage Values", type = 'b', col = "goldenrod" )
+```
+
+```{r}
+0.0005325252+.334335 #add the best mse to the 1sd to get the maximum mse possible. It is 0.3348675. This is the upper bound.
+#when we find this in the dataframe, we see the corresponding shrinkage value is 1.202264e-03. so we use this for the best model. 
+```
+
+
+We then take that MSE and compare it to MSE's produced by different regression models.
+
+
+```{r}
+lm.fit = lm(Salary~., data = hitters.train)
+lm.fit.test <- predict(lm.fit, newdata = hitters.test)
+mse.test.lm<-mean((lm.fit.test-hitters.test$Salary)^2)
+mse.test.lm  
+```
+
+The MSE here is about .49. Let's try Lasso.
+
+
+```{r messages = FALSE, warnings = FALSE}
+library(glmnet)
+x<-model.matrix(Salary~.,hitters )[,-1]
+y=hitters$Salary
+train<-seq(1:200)
+test = (-train)
+y.test=y[test]
+grid=10^seq(10,-2, length =100)
+lasso.mod=glmnet(x[train ,],y[ train],alpha=1, lambda =grid)
+set.seed(1)
+cv.out=cv.glmnet(x[train ,],y[ train],alpha=1)
+plot(cv.out) #as long as the log of lambda is in the range of -2 to -6, it is within 1 se band, it is okay to use. 
+bestlam =cv.out$lambda.min #0.00346633
+bestlam
+log(0.00346633)#we take the log of the best lambda because we took the log of the salary, and see it is -5.664659 which is about 14 variables on the graph
+lasso.pred=predict (lasso.mod ,s=bestlam ,newx=x[test ,])
+mean((lasso.pred -y.test)^2) #0.470371
+coef(cv.out) #this gives us a good model. it has 7 variables, which is in the range of 5-14 variables
+```
+
+The MSE with a Lasso Regression Model is about .47
+
+Both Lasso and a simple Linear Model produce better MSEs than Boosting.
+
+
+
+Using the minimum lambda value from above, it'll tell us which are the most important predictors in the boosted model.
+
+
+```{r}
+summary(boost.hitters)
+```
+
+
+It looks like CAtBat, PutOuts and CRuns are the most important predictors.
+
+
+And now we'll apply bagging to the training dataset. 
+
+```{r}
+library(randomForest)
+set.seed(1)
+bag.hitters= randomForest(Salary~.,data=hitters , subset=train ,
+                            mtry=19,importance =TRUE) #use all 19 variables for bagging
+hitters.test <- hitters[-train ,"Salary"]
+yhat.bag <- predict(bag.hitters , newdata=hitters[-train ,])
+plot(yhat.bag , hitters.test) #
+abline (0,1) #intercept and slope. predicted values on the x and the actual values are on the y axis. the predictors are very close to the actual since slope is 1 and the correlation seems strong. a few outliers.
+mean((yhat.bag - hitters.test)^2) #0.2301184
+```
+
+
+The MSE for bagging is about 0.23, which is ever so slighty higher than boosting.
+
+Final MSE Summary:
+- Boosted Model MSE: 0.2952657
+- Linear Regression MSE: 0.4917959
+- Lasso Model MSE: 0.470371
+- Bagging Model MSE: 0.2301184
+- The bagging model is the best
